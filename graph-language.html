@@ -85,7 +85,8 @@
       <h1>Graph language</h1>
       <textarea id="program" name="program">add(3, 2).mul(2).sub(3).div(2)</textarea>
       <button id="exec" type="button">Compile</button>
-      <code id="out"></code>
+      <code id="process"></code>
+      <p id="output"></p>
       <a href="/" >back to home</a>
     </main>
     <script>
@@ -155,11 +156,7 @@
           .map((name) => [name, registerNode(`${name}`)])
       )
 
-      const exp = `return add(3, 2).mul(2).sub(3).div(2)`;
-      // const lang = run(code, registers)
-      // const out = document.getElementById('out')
-      // console.log(lang);
-      // if (out) out.innerText = code
+      let exp = `return add(3, 2).mul(2).sub(3).div(2)`;
 
       /**
        * @generator
@@ -195,14 +192,16 @@
         },
         update: (text, result) => {
           clearTimeout(timeout);
-          const node = interpreter.run(exp, registers);
+          const node = interpreter.run(`return ${program.value}`, registers);
           interpreter.start(node)
           const unit = node.compile();
           unit.lines.push(`return ${unit.last}`);
           const code = unit.lines.join("\n");
+          text.innerText = code
           console.log(code)
           const fn = new Function("lib", code);
           const res = fn(lib);
+          result.innerText = res
           console.log(res)
         },
         step: () => {
@@ -228,7 +227,9 @@
           return new Function(...keys, code)(...values)
         }
       }
-      interpreter.update()
+      interpreter.update(process, output)
+      updateCode = () => interpreter.update(process, output)
+      exec.addEventListener('click', updateCode)
     </script>
   </body>
 </html>
