@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>scratch garden</title>
+    <style>
+      :root {
+        --sans-font: -apple-system, BlinkMacSystemFont, "Avenir Next", Avenir,
+          "Nimbus Sans L", Roboto, "Noto Sans", "Segoe UI", Arial, Helvetica,
+          "Helvetica Neue", sans-serif;
+        --bg: #f5f7ff;
+        --text: #212121;
+      }
+
+      @media (prefers-color-scheme: dark) {
+        :root {
+          color-scheme: dark;
+          --bg: #212121;
+          --text: #dcdcdc;
+        }
+      }
+
+      *, *::before, *::after {
+        box-sizing: border-box;
+      }
+
+      html {
+        font-family: var(--sans-font);
+        scroll-behavior: smooth;
+      }
+
+      body {
+        color: var(--text);
+        background-color: var(--bg);
+        font-size: 1.15rem;
+        line-height: 1.5;
+        display: grid;
+        grid-template-columns: 1fr min(45rem, 90%) 1fr;
+        margin: 0;
+      }
+
+      main {
+        display: flex;
+        flex-direction: column;
+      }
+
+      body > * {
+        grid-column: 2;
+      }
+
+      ul li:not(:first-child) {
+        margin-top: 0.25rem;
+      }
+
+      a {
+        margin-top: 1rem;
+        color: greenyellow;
+        cursor: pointer;
+      }
+
+      textarea {
+        display: block;
+        width: 460px;
+        height: 180px;
+        padding: 10px;
+        letter-spacing: 1px;
+        margin: 0;
+        border: 2px solid #74637f;
+        border-radius: 0;
+        color: var(--bg);
+        background-color: var(--text);
+        overflow: auto;
+        resize: none;
+      }
+
+      button {
+        margin-top: 1rem;
+        width: 4rem;
+      }
+  </style>
+  </head>
+  <body>
+    <main>
+      <h1>Graph language</h1>
+      <textarea id="program" name="program">add(3, 2).mul(2).sub(3).div(2)</textarea>
+      <button id="exec" type="button">Compile</button>
+      <code id="out"></code>
+      <a href="/" >back to home</a>
+    </main>
+    <script>
+      console.log(program.value)
+      class Node {
+        /** @member {string} */
+        type
+        /** @member {Array.<number|Node>} */
+        ins
+        /**
+         * Constructor for initializing a new instance of the Node.
+         *
+         * @param {string} type - The type of the instance to be created.
+         * @param {...number|Node} ins - The instance data or configuration.
+         *
+         */
+        constructor(type, ins) {
+          this.type = type;
+          this.ins = ins;
+        }
+
+        toString() {
+          return `(${this.type}${this.ins?.map((arg) => ` ${arg}`)})`
+        }
+
+        compile() {
+          const nodes = Array.from(topoSort(this))
+          /**
+           * @param {number|Node} input
+           */
+          const getRef = (input) => {
+            return typeof input !== "object" ? input : `v${nodes.indexOf(input)}`;
+          }
+          const lines = []
+          for (let id in nodes) {
+            const node = nodes[id];
+            const args = node.ins.map(getRef);
+            const ref = getRef(node);
+            lines.push(node.compileSelf(node, ref, args));
+          }
+          const last = getRef(nodes[nodes.length - 1]);
+          return { lines, last };
+        }
+
+        compileSelf(node, ref, args) {
+          return `let ${ref} = lib.${node.type}(${args.join(",")})`;
+        }
+      }
+
+      let registerNode = (type) => {
+        Node.prototype[type] = function (...args) {
+          return new Node(type, [this, ...args]);
+        };
+        return (...args) => new Node(type, args);
+      };
+
+      const lib = {
+        add: (a, b) => a + b,
+        sub: (a, b) => a - b,
+        mul: (a, b) => a * b,
+        div: (a, b) => a / b,
+      }
+
+      const registers = Object.fromEntries(
+        Object
+          .keys(lib)
+          .map((name) => [name, registerNode(`${name}`)])
+      )
+
+      const exp = `return add(3, 2).mul(2).sub(3).div(2)`;
+      // const lang = run(code, registers)
+      // const out = document.getElementById('out')
+      // console.log(lang);
+      // if (out) out.innerText = code
+
+      /**
+       * @generator
+       * @param {Node} node
+       * @param {Set.<Node>} visited
+       * @yields {Node} sorted Node
+       */
+      function* topoSort(node, visited = new Set()) {
+        if (!(node instanceof Node) || visited.has(node)) {
+          return; // constant values or already visited nodes
+        }
+        visited.add(node);
+        for (let input of node.ins) {
+          yield* topoSort(input, visited);
+        }
+        yield node;
+      }
+
+      let timeout;
+      let generator, visited, lines
+
+      const interpreter = {
+        start: (node) => {
+          generator = topoSort(node);
+          visited = [];
+          lines = [];
+          interpreter.step();
+        },
+        getRef: function(input) {
+          return typeof input !== "object"
+            ? input
+            : `v${visited.indexOf(input)}`;
+        },
+        update: (text, result) => {
+          clearTimeout(timeout);
+          const node = interpreter.run(exp, registers);
+          interpreter.start(node)
+          const unit = node.compile();
+          unit.lines.push(`return ${unit.last}`);
+          const code = unit.lines.join("\n");
+          console.log(code)
+          const fn = new Function("lib", code);
+          const res = fn(lib);
+          console.log(res)
+        },
+        step: () => {
+          const res = generator.next();
+          const current = res.value;
+          if (current) {
+            visited.push(current);
+            const args = current.ins.map(interpreter.getRef);
+            const line = current.compileSelf(current, interpreter.getRef(current), args);
+            lines.push(line);
+            timeout = setTimeout(() => interpreter.step(), 1000);
+          } else if (res.done) {
+            lines.push(`return ${interpreter.getRef(visited[visited.length - 1])}`);
+            const code = lines.join("\n");
+            const res = new Function("lib", code)(lib);
+            lines.push("// result: " + res);
+            timeout = setTimeout(() => interpreter.start(), 2000);
+          }
+        },
+        run: (code, lib) => {
+          const keys = Object.keys(lib)
+          const values = Object.values(lib)
+          return new Function(...keys, code)(...values)
+        }
+      }
+      interpreter.update()
+    </script>
+  </body>
+</html>
