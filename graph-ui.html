@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>graph ui</title>
+    <style>
+      :root {
+        --sans-font: -apple-system, BlinkMacSystemFont, "Avenir Next", Avenir,
+          "Nimbus Sans L", Roboto, "Noto Sans", "Segoe UI", Arial, Helvetica,
+          "Helvetica Neue", sans-serif;
+        --bg: #f5f7ff;
+        --text: #212121;
+      }
+
+      @media (prefers-color-scheme: dark) {
+        :root {
+          color-scheme: dark;
+          --bg: #212121;
+          --text: #dcdcdc;
+        }
+      }
+
+      *, *::before, *::after {
+        box-sizing: border-box;
+      }
+
+      html {
+        font-family: var(--sans-font);
+        scroll-behavior: smooth;
+      }
+
+      body {
+        color: var(--text);
+        background-color: var(--bg);
+        font-size: 1.15rem;
+        line-height: 1.5;
+        display: grid;
+        grid-template-columns: 1fr min(45rem, 90%) 1fr;
+        margin: 0;
+      }
+
+      body > * {
+        grid-column: 2;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Graph UI</h1>
+      <p>
+        this page is based on this <a href="https://zenn.dev/aishift/articles/4649f6af5d175b">article</a>.
+      </p>
+      <simple-greeting name="sample"></simple-greeting>
+      <node-element id="lit"></node-element>
+      <board-element>
+
+      </board-element>
+      <div id="board"></div>
+      <!-- <a href="/" >back to home</a> -->
+    </main>
+    <script type="module">
+      import {
+        LitElement,
+        css,
+        html,
+        styleMap
+      } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
+
+      class SimpleGreeting extends LitElement {
+        static properties = {
+          name: {},
+        };
+        // Define scoped styles right with your component, in plain CSS
+        static styles = css`
+          :host {
+            color: blue;
+          }
+        `;
+
+        constructor() {
+          super();
+          // Declare reactive properties
+          this.name = 'World';
+        }
+
+        // Render the UI as a function of component state
+        render() {
+          return html`<p>Hello, ${this.name}!</p>`;
+        }
+      }
+      customElements.define('simple-greeting', SimpleGreeting);
+
+      class NodeElement extends LitElement {
+        static styles = css`
+          .node {
+            /* for node outline */
+            border: solid 1px;
+            width: 100px;
+            height: 40px;
+            border-radius: 6px;
+            padding: 8px 16px;
+
+            /* for node content layout */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+
+            cursor: pointer;
+          }
+
+          .node-outside {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+          }
+
+          .connector {
+            width: 10px;
+            height: 10px;
+            border: solid 1px;
+            border-radius: 50%;
+            cursor: pointer;
+          }
+
+          .node-wrapper {
+            position: absolute;
+          }
+        `
+
+        static properties = {
+          id: { type: String, reflect: true },
+          position: { type: Object, reflect: true },
+        }
+
+        attributeChangedCallback(name, oldVal, newVal) {
+          console.log('attribute change: ', name, newVal);
+          super.attributeChangedCallback(name, oldVal, newVal);
+        }
+
+        render() {
+          const transform = {
+            transform: `translate(${this.position.x}px, ${this.position.y}px)`
+          }
+          return html`
+            <div
+              class="node-wrapper"
+              style=${styleMap(transform)}
+              @click="${this._onClick}"
+            >
+              <div class="node-outside">
+                <div class="connector"></div>
+                <div class="node">${this.position.x}</div>
+                <div class="connector" /></div>
+              </div>
+            </div>
+          `
+        }
+
+        constructor() {
+          super();
+          this.position = { x: 0, y: 0 }
+        }
+
+        _onClick(event) {
+          this.position = { x: this.position.x + 30, y: this.position.y }
+        }
+      }
+
+      customElements.define("node-element", NodeElement);
+
+      class BoardElement extends LitElement {
+        static styles = css`
+          .board {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+          }
+        `
+
+        constructor() {
+          super();
+          this.nodes = [
+            {
+              id: "node1",
+              position: { x: 100, y: 100 },
+            },
+            {
+              id: "node2",
+              position: { x: 400, y: 100 },
+            },
+          ]
+        }
+
+        static properties = {
+          nodes : { type: Array, reflect: true }
+        }
+
+        attributeChangedCallback(name, oldVal, newVal) {
+          console.log('attribute change: ', name, newVal);
+          super.attributeChangedCallback(name, oldVal, newVal);
+        }
+
+        render() {
+          return html`
+            <div className="board">
+              ${this.nodes.map((node) => (
+                html`
+                  <node-element
+                    key="${node.id}""
+                    id="${node.id}""
+                    position="${JSON.stringify(node.position)}"
+                  />
+                `
+              ))}
+            </div>
+          `
+        }
+      }
+
+      customElements.define("board-element", BoardElement);
+    </script>
+  </body>
+</html>
