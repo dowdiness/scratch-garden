@@ -43,6 +43,13 @@
       body > * {
         grid-column: 2;
       }
+
+      board-element {
+        display: block;
+        border: 2px solid gray;
+        min-height: 40vh;
+        height: 100%;
+      }
     </style>
   </head>
   <body>
@@ -52,7 +59,6 @@
         this page is based on this <a href="https://zenn.dev/aishift/articles/4649f6af5d175b">article</a>.
       </p>
       <simple-greeting name="sample"></simple-greeting>
-      <node-element id="lit"></node-element>
       <board-element>
 
       </board-element>
@@ -96,7 +102,7 @@
           .node {
             /* for node outline */
             border: solid 1px;
-            width: 100px;
+            width: 120px;
             height: 40px;
             border-radius: 6px;
             padding: 8px 16px;
@@ -133,10 +139,10 @@
           position: { type: Object, reflect: true },
         }
 
-        attributeChangedCallback(name, oldVal, newVal) {
-          console.log('attribute change: ', name, newVal);
-          super.attributeChangedCallback(name, oldVal, newVal);
-        }
+        // attributeChangedCallback(name, oldVal, newVal) {
+        //   console.log('attribute change: ', name, newVal)
+        //   super.attributeChangedCallback(name, oldVal, newVal)
+        // }
 
         render() {
           const transform = {
@@ -146,11 +152,11 @@
             <div
               class="node-wrapper"
               style=${styleMap(transform)}
-              @click="${this._onClick}"
+              @mousedown=${this._handleMouseDown}
             >
               <div class="node-outside">
                 <div class="connector"></div>
-                <div class="node">${this.position.x}</div>
+                <div class="node">x: ${this.position.x}, y: ${this.position.y}</div>
                 <div class="connector" /></div>
               </div>
             </div>
@@ -158,12 +164,23 @@
         }
 
         constructor() {
-          super();
+          super()
           this.position = { x: 0, y: 0 }
         }
 
-        _onClick(event) {
-          this.position = { x: this.position.x + 30, y: this.position.y }
+        _handleMouseDown(e) {
+          const detail = { selectedNodeId: this.id }
+          // console.log('from node: ', detail)
+          const event = new CustomEvent('nodeselect', {
+            detail,
+            bubbles: true,
+            composed: true,
+            cancelable: true,
+          })
+          this.dispatchEvent(event)
+          if (event.defaultPrevented) {
+            e.preventDefault()
+          }
         }
       }
 
@@ -173,8 +190,8 @@
         static styles = css`
           .board {
             position: relative;
-            width: 100vw;
-            height: 100vh;
+            width: 100%;
+            height: 100%;
           }
         `
 
@@ -190,26 +207,64 @@
               position: { x: 400, y: 100 },
             },
           ]
+          this._selectedNodeId = null
         }
 
         static properties = {
-          nodes : { type: Array, reflect: true }
+          nodes : { type: Array, reflect: true },
+          _selectedNodeId: { state: true }
         }
 
-        attributeChangedCallback(name, oldVal, newVal) {
-          console.log('attribute change: ', name, newVal);
-          super.attributeChangedCallback(name, oldVal, newVal);
+        // attributeChangedCallback(name, oldVal, newVal) {
+        //   console.log('attribute change: ', name, newVal);
+        //   super.attributeChangedCallback(name, oldVal, newVal);
+        // }
+
+        _onNodeSelect(e) {
+          // console.log('mouse down from child: ', e.detail.selectedNodeId, e);
+          const id = e.detail.selectedNodeId
+          if (typeof id === 'string') {
+            this._selectedNodeId = id
+          }
+        }
+
+        _onMouseUpBoard() {
+          // console.log('mouse up: ', this._selectedNodeId);
+          this._selectedNodeId = null
+        }
+
+        _onMouseMoveBoard(event) {
+          // console.log('mouse move: ', this._selectedNodeId);
+          if (this._selectedNodeId) {
+            const selectedNode = this.nodes.find((node) => node.id === this._selectedNodeId)
+            if (!selectedNode) return
+            this.nodes = this.nodes.map((node) => {
+              return selectedNode.id === node.id ? {
+                ...node,
+                position: {
+                  x: node.position.x + event.movementX,
+                  y: node.position.y + event.movementY,
+                }
+              } : node
+            })
+          }
         }
 
         render() {
           return html`
-            <div className="board">
+            <div
+              class="board"
+              @mousemove=${this._onMouseMoveBoard}
+              @mouseup=${this._onMouseUpBoard}
+              @mouseleave=${this._onMouseUpBoard}
+            >
               ${this.nodes.map((node) => (
                 html`
                   <node-element
                     key="${node.id}""
                     id="${node.id}""
                     position="${JSON.stringify(node.position)}"
+                    @nodeselect=${this._onNodeSelect}
                   />
                 `
               ))}
