@@ -115,37 +115,6 @@
           position: { type: Object, reflect: true },
         }
 
-        render() {
-          const transform = {
-            transform: `translate(${this.position.x}px, ${this.position.y}px)`
-          }
-          return html`
-            <div
-              class="node-wrapper"
-              style=${styleMap(transform)}
-            >
-              <div class="node-outside">
-                <div
-                  class="connector"
-                  data-placement="Top"
-                  @mousedown=${this._handleConnect}
-                ></div>
-                <div
-                  class="node"
-                  @mousedown=${this._handleMouseDown}
-                >
-                  x: ${this.position.x}, y: ${this.position.y}
-                </div>
-                <div
-                  class="connector"
-                  data-placement="Bottom"
-                  @mousedown=${this._handleConnect}
-                /></div>
-              </div>
-            </div>
-          `
-        }
-
         constructor() {
           super()
           this.position = { x: 0, y: 0 }
@@ -155,14 +124,14 @@
           e.cancelBubble = true
           const detail = { selectedNodeId: this.id }
           // console.log('from node: ', detail)
-          const event = new CustomEvent('nodeselect', {
+          const nodeSelectEvent = new CustomEvent('nodeselect', {
             detail,
             bubbles: true,
             composed: true,
             cancelable: true,
           })
-          this.dispatchEvent(event)
-          if (event.defaultPrevented) {
+          this.dispatchEvent(nodeSelectEvent)
+          if (nodeSelectEvent.defaultPrevented) {
             e.preventDefault()
           }
         }
@@ -192,13 +161,44 @@
             from: position,
             to: position,
           }
-          const event = new CustomEvent('connectstart', {
+          const connectStartEvent = new CustomEvent('connectstart', {
             detail,
             bubbles: true,
             composed: true,
             cancelable: true,
           })
-          this.dispatchEvent(event)
+          this.dispatchEvent(connectStartEvent)
+        }
+
+        render() {
+          const transform = {
+            transform: `translate(${this.position.x}px, ${this.position.y}px)`
+          }
+          return html`
+            <div
+              class="node-wrapper"
+              style=${styleMap(transform)}
+            >
+              <div class="node-outside">
+                <div
+                  class="connector"
+                  data-placement="Top"
+                  @mousedown=${this._handleConnect}
+                ></div>
+                <div
+                  class="node"
+                  @mousedown=${this._handleMouseDown}
+                >
+                  x: ${this.position.x}, y: ${this.position.y}
+                </div>
+                <div
+                  class="connector"
+                  data-placement="Bottom"
+                  @mousedown=${this._handleConnect}
+                /></div>
+              </div>
+            </div>
+          `
         }
       }
 
@@ -296,7 +296,7 @@
           }
         }
 
-        _handleMouseDownBoard(event) {
+        _handleMouseDownBoard() {
           this._newEdge = null
         }
 
@@ -304,7 +304,7 @@
           this._selectedNodeId = null
         }
 
-        _handleMouseMoveBoard(event) {
+        _handleMouseMoveBoard(e) {
           if (this._selectedNodeId) {
             const selectedNode = this.nodes.find((node) => node.id === this._selectedNodeId)
             if (!selectedNode) return
@@ -312,8 +312,8 @@
               return selectedNode.id === node.id ? {
                 ...node,
                 position: {
-                  x: node.position.x + event.movementX,
-                  y: node.position.y + event.movementY,
+                  x: node.position.x + e.movementX,
+                  y: node.position.y + e.movementY,
                 }
               } : node
             })
@@ -323,8 +323,8 @@
             this._newEdge = {
               ...this._newEdge,
               to: {
-                x: event.clientX - globalThis.___boardRect.x,
-                y: event.clientY - globalThis.___boardRect.y,
+                x: e.clientX - globalThis.___boardRect.x,
+                y: e.clientY - globalThis.___boardRect.y,
               }
             }
           }
