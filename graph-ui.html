@@ -72,6 +72,7 @@
 
       // HACK globalThis has some additional properties
       // ___boardRect DOMRect of BoardElement
+      // ___isEditingNewEdge boolean
 
       class NodeElement extends LitElement {
         static styles = css`
@@ -117,13 +118,13 @@
 
         constructor() {
           super()
+          this.id = crypto.randomUUID()
           this.position = { x: 0, y: 0 }
         }
 
         _handleMouseDown(e) {
           e.cancelBubble = true
           const detail = { selectedNodeId: this.id }
-          // console.log('from node: ', detail)
           const nodeSelectEvent = new CustomEvent('nodeselect', {
             detail,
             bubbles: true,
@@ -138,6 +139,7 @@
 
         _handleConnect(e) {
           e.stopPropagation()
+          // caluculate edge element position
           // Connector's DOMRect
           const connectorRect = e.currentTarget.getBoundingClientRect()
           // HACK BoardElement boarder size
@@ -156,18 +158,36 @@
                 + (placementFix)
                 - boarderPX
           }
-          const detail = {
-            id: this.id,
-            from: position,
-            to: position,
+          // Switch Start/End event
+          if (!globalThis.___isEditingNewEdge) {
+            // Connect Start event
+            const detail = {
+              id: crypto.randomUUID(),
+              fromId: this.id,
+              from: position,
+              to: position,
+            }
+            const connectStartEvent = new CustomEvent('connectstart', {
+              detail,
+              bubbles: true,
+              composed: true,
+              cancelable: true,
+            })
+            this.dispatchEvent(connectStartEvent)
+          } else {
+            // Connect End event
+            const detail = {
+              toId: this.id,
+              to: position,
+            }
+            const connectStartEvent = new CustomEvent('connectend', {
+              detail,
+              bubbles: true,
+              composed: true,
+              cancelable: true,
+            })
+            this.dispatchEvent(connectStartEvent)
           }
-          const connectStartEvent = new CustomEvent('connectstart', {
-            detail,
-            bubbles: true,
-            composed: true,
-            cancelable: true,
-          })
-          this.dispatchEvent(connectStartEvent)
         }
 
         render() {
@@ -206,6 +226,7 @@
 
       class EdgeElement extends LitElement {
         static properties = {
+          id: { type: String },
           from: { type: Object },
           to: { type: Object }
         };
@@ -225,6 +246,7 @@
         constructor() {
           super()
           // Declare reactive properties
+          this.id = crypto.randomUUID()
           this.from = { x: 0, y: 0 }
           this.to = { x: 100, y: 100 }
         }
@@ -259,6 +281,7 @@
 
         static properties = {
           nodes : { type: Array, reflect: true },
+          edges : { type: Array, reflect: true },
           _selectedNodeId: { state: true },
           _newEdge: { state: true }
         }
@@ -275,15 +298,29 @@
               position: { x: 400, y: 100 },
             },
           ]
+          this.edges = []
           this._selectedNodeId = null
           this._newEdge = null
+          globalThis.___isEditingNewEdge = false
           globalThis.___boardRect = this.getBoundingClientRect()
         }
 
         _onConnectStart(e) {
-          this._newEdge = {
-            from: e.detail.from,
-            to: e.detail.to,
+          this._newEdge = e.detail
+          globalThis.___isEditingNewEdge = true
+        }
+
+        _onConnectEnd(e) {
+          if (this._newEdge) {
+            // Properties order is important because the property takes the last value assigned and override previous properties.
+            // https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Operators/Spread_syntax#spread_in_object_literals
+            const edge = {
+              ...this._newEdge,
+              ...e.detail,
+            }
+            this.edges = [...this.edges, edge]
+            this._newEdge = null
+            globalThis.___isEditingNewEdge = false
           }
         }
 
@@ -293,11 +330,13 @@
             this._selectedNodeId = id
             // reset newEdge
             this._newEdge = null
+            globalThis.___isEditingNewEdge = false
           }
         }
 
         _handleMouseDownBoard() {
           this._newEdge = null
+          globalThis.___isEditingNewEdge = false
         }
 
         _handleMouseUpBoard() {
@@ -308,6 +347,8 @@
           if (this._selectedNodeId) {
             const selectedNode = this.nodes.find((node) => node.id === this._selectedNodeId)
             if (!selectedNode) return
+
+            // Update nodes position.
             this.nodes = this.nodes.map((node) => {
               return selectedNode.id === node.id ? {
                 ...node,
@@ -316,6 +357,23 @@
                   y: node.position.y + e.movementY,
                 }
               } : node
+            })
+
+            // Update edges position.
+            this.edges = this.edges.map((edge) => {
+              return selectedNode.id === edge.fromId ? {
+                ...edge,
+                from: {
+                  x: edge.from.x + e.movementX,
+                  y: edge.from.y + e.movementY,
+                }
+              } : selectedNode.id === edge.toId ? {
+                ...edge,
+                to: {
+                  x: edge.to.x + e.movementX,
+                  y: edge.to.y + e.movementY,
+                }
+              } : edge
             })
           }
 
@@ -347,6 +405,16 @@
                   ></edge-element>`
                 : nothing
               }
+              ${this.edges.map((edge) => (
+                html`
+                  <edge-element
+                    key="${edge.id}""
+                    id="${edge.id}""
+                    from="${JSON.stringify(edge.from)}"
+                    to="${JSON.stringify(edge.to)}"
+                  />
+                `
+              ))}
               ${this.nodes.map((node) => (
                 html`
                   <node-element
@@ -355,6 +423,7 @@
                     position="${JSON.stringify(node.position)}"
                     @nodeselect=${this._onNodeSelect}
                     @connectstart=${this._onConnectStart}
+                    @connectend=${this._onConnectEnd}
                   />
                 `
               ))}
