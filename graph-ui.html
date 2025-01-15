@@ -66,32 +66,12 @@
         LitElement,
         css,
         html,
+        nothing,
         styleMap
       } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
 
-      class SimpleGreeting extends LitElement {
-        static properties = {
-          name: {},
-        };
-        // Define scoped styles right with your component, in plain CSS
-        static styles = css`
-          :host {
-            color: blue;
-          }
-        `;
-
-        constructor() {
-          super();
-          // Declare reactive properties
-          this.name = 'World';
-        }
-
-        // Render the UI as a function of component state
-        render() {
-          return html`<p>Hello, ${this.name}!</p>`;
-        }
-      }
-      customElements.define('simple-greeting', SimpleGreeting);
+      // HACK globalThis has some additional properties
+      // ___boardRect DOMRect of BoardElement
 
       class NodeElement extends LitElement {
         static styles = css`
@@ -135,11 +115,6 @@
           position: { type: Object, reflect: true },
         }
 
-        // attributeChangedCallback(name, oldVal, newVal) {
-        //   console.log('attribute change: ', name, newVal)
-        //   super.attributeChangedCallback(name, oldVal, newVal)
-        // }
-
         render() {
           const transform = {
             transform: `translate(${this.position.x}px, ${this.position.y}px)`
@@ -148,12 +123,24 @@
             <div
               class="node-wrapper"
               style=${styleMap(transform)}
-              @mousedown=${this._handleMouseDown}
             >
               <div class="node-outside">
-                <div class="connector"></div>
-                <div class="node">x: ${this.position.x}, y: ${this.position.y}</div>
-                <div class="connector" /></div>
+                <div
+                  class="connector"
+                  data-placement="Top"
+                  @mousedown=${this._handleConnect}
+                ></div>
+                <div
+                  class="node"
+                  @mousedown=${this._handleMouseDown}
+                >
+                  x: ${this.position.x}, y: ${this.position.y}
+                </div>
+                <div
+                  class="connector"
+                  data-placement="Bottom"
+                  @mousedown=${this._handleConnect}
+                /></div>
               </div>
             </div>
           `
@@ -165,6 +152,7 @@
         }
 
         _handleMouseDown(e) {
+          e.cancelBubble = true
           const detail = { selectedNodeId: this.id }
           // console.log('from node: ', detail)
           const event = new CustomEvent('nodeselect', {
@@ -178,10 +166,88 @@
             e.preventDefault()
           }
         }
+
+        _handleConnect(e) {
+          e.stopPropagation()
+          // Connector's DOMRect
+          const connectorRect = e.currentTarget.getBoundingClientRect()
+          // HACK BoardElement boarder size
+          const boarderPX = 2
+          const placement = e.currentTarget.dataset.placement
+          // Change position by connection placement
+          const placementFix =
+            placement === "Top"
+              ? 0
+              : connectorRect.height
+          const position = {
+            x: connectorRect.x - globalThis.___boardRect.x
+              + (connectorRect.width / 2)
+              - boarderPX,
+            y: connectorRect.y - globalThis.___boardRect.y
+                + (placementFix)
+                - boarderPX
+          }
+          const detail = {
+            id: this.id,
+            from: position,
+            to: position,
+          }
+          const event = new CustomEvent('connectstart', {
+            detail,
+            bubbles: true,
+            composed: true,
+            cancelable: true,
+          })
+          this.dispatchEvent(event)
+        }
       }
 
-      customElements.define("node-element", NodeElement);
+      customElements.define("node-element", NodeElement)
 
+      class EdgeElement extends LitElement {
+        static properties = {
+          from: { type: Object },
+          to: { type: Object }
+        };
+        // Define scoped styles right with your component, in plain CSS
+        static styles = css`
+          .edge-wrapper {
+            position: absolute;
+            pointer-events: none;
+          }
+
+          .svg {
+            width: 100vw;
+            height: 100vh;
+          }
+        `;
+
+        constructor() {
+          super()
+          // Declare reactive properties
+          this.from = { x: 0, y: 0 }
+          this.to = { x: 100, y: 100 }
+        }
+
+        // Render the UI as a function of component state
+        render() {
+          return html`
+            <div class="edge-wrapper">
+              <svg class="svg">
+                <path
+                  stroke="#dcdcdc"
+                  strokeWidth="2"
+                  fill="none"
+                  d="M ${this.from.x}, ${this.from.y} L ${this.to.x}, ${this.to.y}"
+                />
+              </svg>
+            </div>
+          `;
+        }
+      }
+      customElements.define('edge-element', EdgeElement)
+
+      // Singleton class
       class BoardElement extends LitElement {
         static styles = css`
           .board {
@@ -191,12 +257,18 @@
           }
         `
 
+        static properties = {
+          nodes : { type: Array, reflect: true },
+          _selectedNodeId: { state: true },
+          _newEdge: { state: true }
+        }
+
         constructor() {
           super();
           this.nodes = [
             {
               id: "node1",
-              position: { x: 100, y: 100 },
+              position: { x: 0, y: 0 },
             },
             {
               id: "node2",
@@ -204,33 +276,35 @@
             },
           ]
           this._selectedNodeId = null
+          this._newEdge = null
+          globalThis.___boardRect = this.getBoundingClientRect()
         }
 
-        static properties = {
-          nodes : { type: Array, reflect: true },
-          _selectedNodeId: { state: true }
-        }
-
-        // attributeChangedCallback(name, oldVal, newVal) {
-        //   console.log('attribute change: ', name, newVal);
-        //   super.attributeChangedCallback(name, oldVal, newVal);
-        // }
-
-        _onNodeSelect(e) {
-          // console.log('mouse down from child: ', e.detail.selectedNodeId, e);
-          const id = e.detail.selectedNodeId
-          if (typeof id === 'string') {
-            this._selectedNodeId = id
+        _onConnectStart(e) {
+          this._newEdge = {
+            from: e.detail.from,
+            to: e.detail.to,
           }
         }
 
-        _onMouseUpBoard() {
-          // console.log('mouse up: ', this._selectedNodeId);
+        _onNodeSelect(e) {
+          const id = e.detail.selectedNodeId
+          if (typeof id === 'string') {
+            this._selectedNodeId = id
+            // reset newEdge
+            this._newEdge = null
+          }
+        }
+
+        _handleMouseDownBoard(event) {
+          this._newEdge = null
+        }
+
+        _handleMouseUpBoard() {
           this._selectedNodeId = null
         }
 
-        _onMouseMoveBoard(event) {
-          // console.log('mouse move: ', this._selectedNodeId);
+        _handleMouseMoveBoard(event) {
           if (this._selectedNodeId) {
             const selectedNode = this.nodes.find((node) => node.id === this._selectedNodeId)
             if (!selectedNode) return
@@ -244,16 +318,35 @@
               } : node
             })
           }
+
+          if (this._newEdge) {
+            this._newEdge = {
+              ...this._newEdge,
+              to: {
+                x: event.clientX - globalThis.___boardRect.x,
+                y: event.clientY - globalThis.___boardRect.y,
+              }
+            }
+          }
         }
 
         render() {
           return html`
             <div
               class="board"
-              @mousemove=${this._onMouseMoveBoard}
-              @mouseup=${this._onMouseUpBoard}
-              @mouseleave=${this._onMouseUpBoard}
+              @mousedown=${this._handleMouseDownBoard}
+              @mousemove=${this._handleMouseMoveBoard}
+              @mouseup=${this._handleMouseUpBoard}
+              @mouseleave=${this._handleMouseUpBoard}
             >
+              ${this._newEdge
+                ? html`
+                  <edge-element
+                    from="${JSON.stringify(this._newEdge.from)}"
+                    to="${JSON.stringify(this._newEdge.to)}"
+                  ></edge-element>`
+                : nothing
+              }
               ${this.nodes.map((node) => (
                 html`
                   <node-element
@@ -261,6 +354,7 @@
                     id="${node.id}""
                     position="${JSON.stringify(node.position)}"
                     @nodeselect=${this._onNodeSelect}
+                    @connectstart=${this._onConnectStart}
                   />
                 `
               ))}
