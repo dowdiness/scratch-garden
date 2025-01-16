@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>graph ui</title>
+    <title>graph ui with valtio</title>
     <style>
       @font-face {
         font-family: 'FontWithASyntaxHighlighter';
@@ -83,7 +83,7 @@
   </head>
   <body>
     <main>
-      <h1>Graph UI</h1>
+      <h1>Graph UI with Valtio</h1>
       <board-element></board-element>
       <br>
       <p>
@@ -107,23 +107,83 @@
       } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js'
       import { proxy, snapshot, subscribe } from './valtio.js'
 
-      const appState = proxy({
-        nodes: [
+      // Node type
+      // id string node id
+      // type n | add | sub | mul | div
+      // args n[] arguments values
+      // ins node[] inputs nodes
+      // position { x: number, y: number } position of Node
+
+      // Edge type
+      // id string
+      // from { x: number, y: number } source handle postion
+      // fromId string node id of source
+      // to { x: number, y: number } target handle postion
+      // toId string node id of target
+      const nodesState = proxy(
+        [
           {
             id: `node-${crypto.randomUUID()}`,
+            type: 'add',
+            args: [],
+            ins: [],
             position: { x: 20, y: 200 },
           },
           {
             id: `node-${crypto.randomUUID()}`,
+            type: 'sub',
+            args: [],
+            ins: [],
             position: { x: 200, y: 100 },
           },
-        ],
-        edges: []
+        ]
+      )
+      const edgesState = proxy([])
+      const appState = proxy({
+        nodes: nodesState,
+        edges: edgesState,
+        isEditingNewEdge: false,
+        boardRect: { x:0, y: 0 },
       })
 
-      // HACK globalThis has some additional properties
-      // ___boardRect DOMRect of BoardElement
-      // ___isEditingNewEdge boolean
+      subscribe(appState, () => {
+        const state = snapshot(appState)
+        // console.log(state)
+      })
+
+      export class AddNode extends LitElement {
+        static properties = {
+          type: { type: String },
+          args: { type: Array },
+          ins: { type: Array },
+        }
+
+        constructor() {
+          super()
+          this.type = 'n'
+          this.args = []
+          this.ins = []
+        }
+
+        _handleClick(e) {
+          console.log(this)
+          appState.nodes = [
+            ...snapshot(appState.nodes),
+            {
+              id: `node-${crypto.randomUUID()}`,
+              type: this.type,
+              args: this.args,
+              ins: this.ins,
+              position: { x: 10, y: 40 },
+            }
+          ]
+        }
+
+        render() {
+          return html`<button @click=${this._handleClick}>${this.type}</button>`
+        }
+      }
+      customElements.define('add-node', AddNode)
 
       class NodeElement extends LitElement {
         static styles = css`
@@ -164,13 +224,19 @@
 
         static properties = {
           id: { type: String, reflect: true },
+          type: { type: String },
+          args: { type: Array },
+          ins: { type: Array },
           position: { type: Object, reflect: true },
         }
 
         constructor() {
           super()
           this.id = `node-${crypto.randomUUID()}`
-          this.position = { x: 0, y: 0 }
+          this.position = { x: 10, y: 40 }
+          this.type = 'n'
+          this.args = [440]
+          this.ins = []
         }
 
         _handleMouseDown(e) {
@@ -201,16 +267,17 @@
             placement === "Top"
               ? 0
               : connectorRect.height
+          const state = snapshot(appState)
           const position = {
-            x: connectorRect.x - globalThis.___boardRect.x
+            x: connectorRect.x - state.boardRect.x
               + (connectorRect.width / 2)
               - boarderPX,
-            y: connectorRect.y - globalThis.___boardRect.y
+            y: connectorRect.y - state.boardRect.y
                 + (placementFix)
                 - boarderPX
           }
           // Switch Start/End event
-          if (!globalThis.___isEditingNewEdge) {
+          if (!state.isEditingNewEdge) {
             // Connect Start event
             const detail = {
               id: `edge-${crypto.randomUUID()}`,
@@ -260,7 +327,7 @@
                   class="node"
                   @mousedown=${this._handleMouseDown}
                 >
-                  x: ${this.position.x}, y: ${this.position.y}
+                  ${this.type}
                 </div>
                 <div
                   class="connector"
@@ -298,7 +365,7 @@
           super()
           // Declare reactive properties
           this.id = `edge-${crypto.randomUUID()}`
-          this.from = { x: 0, y: 0 }
+          this.from = { x: 10, y: 40 }
           this.to = { x: 100, y: 100 }
         }
 
@@ -320,6 +387,34 @@
       }
       customElements.define('edge-element', EdgeElement)
 
+      const nodeTypes = [
+        {
+          type: 'n',
+          args: [1],
+          ins: [],
+        },
+        {
+          type: 'add',
+          args: [1, 2],
+          ins: [null, null],
+        },
+        {
+          type: 'sub',
+          args: [2, 1],
+          ins: [null, null],
+        },
+        {
+          type: 'mul',
+          args: [2, 3],
+          ins: [null, null],
+        },
+        {
+          type: 'div',
+          args: [4, 2],
+          ins: [null, null],
+        },
+      ]
+
       // Singleton class
       class BoardElement extends LitElement {
         static styles = css`
@@ -327,6 +422,12 @@
             position: relative;
             width: 100%;
             height: 100%;
+          }
+
+          .panel {
+            position: absolute;
+            z-index: 1;
+            margin: 0.5rem 1rem;
           }
         `
 
@@ -343,8 +444,12 @@
           this.edges = snapshot(appState.edges)
           this._selectedNodeId = null
           this._newEdge = null
-          globalThis.___isEditingNewEdge = false
-          globalThis.___boardRect = this.getBoundingClientRect()
+          appState.isEditingNewEdge = false
+          // HACK Get Illegal Invocation if we store DOMRect directry
+          appState.boardRect = {
+            x: this.getBoundingClientRect().x,
+            y: this.getBoundingClientRect().y
+          }
         }
 
         connectedCallback() {
@@ -361,8 +466,9 @@
         _handleValtio() {
           subscribe(appState, () => {
             const state = snapshot(appState) // A snapshot is an immutable object
-            this.nodes = state.nodes
-            this.edges = state.edges
+            // Skip UI update if previous value is same as new one.
+            if (this.nodes !== state.nodes) this.nodes = state.nodes
+            if (this.edges !== state.edges) this.edges = state.edges
           })
         }
 
@@ -371,14 +477,17 @@
           if (e.ctrlKey && e.key === 'n') {
             appState.nodes = [...snapshot(appState.nodes), {
               id: `node-${crypto.randomUUID()}`,
-              position: { x: 0, y: 0 },
+              type: 'n',
+              args: [200],
+              ins: [],
+              position: { x: 10, y: 40 },
             }]
           }
         }
 
         _onConnectStart(e) {
           this._newEdge = e.detail
-          globalThis.___isEditingNewEdge = true
+          appState.isEditingNewEdge = true
         }
 
         _onConnectEnd(e) {
@@ -391,7 +500,7 @@
             }
             appState.edges = [...snapshot(appState.edges), edge]
             this._newEdge = null
-            globalThis.___isEditingNewEdge = false
+            appState.isEditingNewEdge = false
           }
         }
 
@@ -401,13 +510,13 @@
             this._selectedNodeId = id
             // reset newEdge
             this._newEdge = null
-            globalThis.___isEditingNewEdge = false
+            appState.isEditingNewEdge = false
           }
         }
 
         _handleMouseDownBoard() {
           this._newEdge = null
-          globalThis.___isEditingNewEdge = false
+          appState.isEditingNewEdge = false
         }
 
         _handleMouseUpBoard() {
@@ -451,11 +560,12 @@
           }
 
           if (this._newEdge) {
+            const boardRect = snapshot(appState.boardRect)
             this._newEdge = {
               ...this._newEdge,
               to: {
-                x: e.clientX - globalThis.___boardRect.x,
-                y: e.clientY - globalThis.___boardRect.y,
+                x: e.clientX - boardRect.x,
+                y: e.clientY - boardRect.y,
               }
             }
           }
@@ -463,44 +573,58 @@
 
         render() {
           return html`
-            <div
-              class="board"
-              @mousedown=${this._handleMouseDownBoard}
-              @mousemove=${this._handleMouseMoveBoard}
-              @mouseup=${this._handleMouseUpBoard}
-              @mouseleave=${this._handleMouseUpBoard}
-            >
-              ${this._newEdge
-                ? html`
-                  <edge-element
-                    from="${JSON.stringify(this._newEdge.from)}"
-                    to="${JSON.stringify(this._newEdge.to)}"
-                  ></edge-element>`
-                : nothing
+            <div class="panel">
+              ${nodeTypes.map((nodeData) => {
+                return html`
+                  <add-node
+                    type="${nodeData.type}"
+                    args="${JSON.stringify(nodeData.args)}"
+                    ins="${JSON.stringify(nodeData.ins)}"
+                  ></add-node>
+                `})
               }
-              ${this.edges.map((edge) => (
-                html`
-                  <edge-element
-                    key="${edge.id}""
-                    id="${edge.id}""
-                    from="${JSON.stringify(edge.from)}"
-                    to="${JSON.stringify(edge.to)}"
-                  />
-                `
-              ))}
-              ${this.nodes.map((node) => (
-                html`
-                  <node-element
-                    key="${node.id}""
-                    id="${node.id}""
-                    position="${JSON.stringify(node.position)}"
-                    @nodeselect=${this._onNodeSelect}
-                    @connectstart=${this._onConnectStart}
-                    @connectend=${this._onConnectEnd}
-                  />
-                `
-              ))}
             </div>
+              <div
+                class="board"
+                @mousedown=${this._handleMouseDownBoard}
+                @mousemove=${this._handleMouseMoveBoard}
+                @mouseup=${this._handleMouseUpBoard}
+                @mouseleave=${this._handleMouseUpBoard}
+              >
+                ${this._newEdge
+                  ? html`
+                    <edge-element
+                      from="${JSON.stringify(this._newEdge.from)}"
+                      to="${JSON.stringify(this._newEdge.to)}"
+                    ></edge-element>`
+                  : nothing
+                }
+                ${this.edges.map((edge) => (
+                  html`
+                    <edge-element
+                      key="${edge.id}""
+                      id="${edge.id}""
+                      from="${JSON.stringify(edge.from)}"
+                      to="${JSON.stringify(edge.to)}"
+                    />
+                  `
+                ))}
+                ${this.nodes.map((node) => (
+                  html`
+                    <node-element
+                      key="${node.id}"
+                      id="${node.id}"
+                      type="${node.type}"
+                      args=${node.args}
+                      ins=${node.ins}
+                      position="${JSON.stringify(node.position)}"
+                      @nodeselect=${this._onNodeSelect}
+                      @connectstart=${this._onConnectStart}
+                      @connectend=${this._onConnectEnd}
+                    />
+                  `
+                ))}
+              </div>
           `
         }
       }
