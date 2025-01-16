@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>graph ui</title>
+    <style>
+      @font-face {
+        font-family: 'FontWithASyntaxHighlighter';
+        src:
+          url('./fonts/FontWithASyntaxHighlighter-Regular.woff2')
+          format('woff2')
+        ;
+      }
+      :root {
+        --sans-font: -apple-system, BlinkMacSystemFont, "Avenir Next", Avenir,
+          "Nimbus Sans L", Roboto, "Noto Sans", "Segoe UI", Arial, Helvetica,
+          "Helvetica Neue", sans-serif;
+        --code-font: "FontWithASyntaxHighlighter", monospace;
+        --bg: #f5f7ff;
+        --text: #212121;
+      }
+
+      @media (prefers-color-scheme: dark) {
+        :root {
+          color-scheme: dark;
+          --bg: #212121;
+          --text: #dcdcdc;
+        }
+      }
+
+      *, *::before, *::after {
+        box-sizing: border-box;
+      }
+
+      html {
+        font-family: var(--sans-font);
+        scroll-behavior: smooth;
+      }
+
+      body {
+        color: var(--text);
+        background-color: var(--bg);
+        font-size: 1.15rem;
+        line-height: 1.5;
+        display: grid;
+        grid-template-columns: 1fr min(45rem, 90%) 1fr;
+        margin: 0;
+      }
+
+      body > * {
+        grid-column: 2;
+      }
+
+      main {
+        margin-bottom: 2rem;
+      }
+
+      code,
+      pre {
+        font-family: var(--code-font);
+      }
+
+      pre {
+        padding: 8px;
+        font-size: 12px;
+        border: 0;
+        overflow: auto;
+        outline: none;
+        background-color: #44444490;
+        color: white;
+        width: 100%;
+        box-sizing: border-box;
+      }
+
+      board-element {
+        display: block;
+        border: 2px solid gray;
+        min-height: 40vh;
+        height: 70vh;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Graph UI</h1>
+      <board-element></board-element>
+      <br>
+      <p>
+        This example is based on this <a href="https://zenn.dev/aishift/articles/4649f6af5d175b">article</a>.
+      </p>
+      <br>
+      <details>
+        <summary id="loc">show page source</summary>
+        <pre id="pre"></pre>
+      </details>
+      <br>
+      <a href="/" >back to home</a>
+    </main>
+    <script type="module">
+      import {
+        LitElement,
+        css,
+        html,
+        nothing,
+        styleMap
+      } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js'
+      import { proxy, snapshot, subscribe } from './valtio.js'
+
+      const appState = proxy({
+        nodes: [
+          {
+            id: `node-${crypto.randomUUID()}`,
+            position: { x: 20, y: 200 },
+          },
+          {
+            id: `node-${crypto.randomUUID()}`,
+            position: { x: 200, y: 100 },
+          },
+        ],
+        edges: []
+      })
+
+      // HACK globalThis has some additional properties
+      // ___boardRect DOMRect of BoardElement
+      // ___isEditingNewEdge boolean
+
+      class NodeElement extends LitElement {
+        static styles = css`
+          .node {
+            /* for node outline */
+            border: solid 1px;
+            width: 120px;
+            height: 40px;
+            border-radius: 6px;
+            padding: 8px 16px;
+
+            /* for node content layout */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+
+            cursor: pointer;
+          }
+
+          .node-outside {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+          }
+
+          .connector {
+            width: 10px;
+            height: 10px;
+            border: solid 1px;
+            border-radius: 50%;
+            cursor: pointer;
+          }
+
+          .node-wrapper {
+            position: absolute;
+          }
+        `
+
+        static properties = {
+          id: { type: String, reflect: true },
+          position: { type: Object, reflect: true },
+        }
+
+        constructor() {
+          super()
+          this.id = `node-${crypto.randomUUID()}`
+          this.position = { x: 0, y: 0 }
+        }
+
+        _handleMouseDown(e) {
+          e.cancelBubble = true
+          const detail = { selectedNodeId: this.id }
+          const nodeSelectEvent = new CustomEvent('nodeselect', {
+            detail,
+            bubbles: true,
+            composed: true,
+            cancelable: true,
+          })
+          this.dispatchEvent(nodeSelectEvent)
+          if (nodeSelectEvent.defaultPrevented) {
+            e.preventDefault()
+          }
+        }
+
+        _handleConnect(e) {
+          e.stopPropagation()
+          // caluculate edge element position
+          // Connector's DOMRect
+          const connectorRect = e.currentTarget.getBoundingClientRect()
+          // HACK BoardElement boarder size
+          const boarderPX = 2
+          const placement = e.currentTarget.dataset.placement
+          // Change position by connection placement
+          const placementFix =
+            placement === "Top"
+              ? 0
+              : connectorRect.height
+          const position = {
+            x: connectorRect.x - globalThis.___boardRect.x
+              + (connectorRect.width / 2)
+              - boarderPX,
+            y: connectorRect.y - globalThis.___boardRect.y
+                + (placementFix)
+                - boarderPX
+          }
+          // Switch Start/End event
+          if (!globalThis.___isEditingNewEdge) {
+            // Connect Start event
+            const detail = {
+              id: `edge-${crypto.randomUUID()}`,
+              fromId: this.id,
+              from: position,
+              to: position,
+            }
+            const connectStartEvent = new CustomEvent('connectstart', {
+              detail,
+              bubbles: true,
+              composed: true,
+              cancelable: true,
+            })
+            this.dispatchEvent(connectStartEvent)
+          } else {
+            // Connect End event
+            const detail = {
+              toId: this.id,
+              to: position,
+            }
+            const connectStartEvent = new CustomEvent('connectend', {
+              detail,
+              bubbles: true,
+              composed: true,
+              cancelable: true,
+            })
+            this.dispatchEvent(connectStartEvent)
+          }
+        }
+
+        render() {
+          const transform = {
+            transform: `translate(${this.position.x}px, ${this.position.y}px)`
+          }
+          return html`
+            <div
+              class="node-wrapper"
+              style=${styleMap(transform)}
+            >
+              <div class="node-outside">
+                <div
+                  class="connector"
+                  data-placement="Top"
+                  @mousedown=${this._handleConnect}
+                ></div>
+                <div
+                  class="node"
+                  @mousedown=${this._handleMouseDown}
+                >
+                  x: ${this.position.x}, y: ${this.position.y}
+                </div>
+                <div
+                  class="connector"
+                  data-placement="Bottom"
+                  @mousedown=${this._handleConnect}
+                /></div>
+              </div>
+            </div>
+          `
+        }
+      }
+
+      customElements.define("node-element", NodeElement)
+
+      class EdgeElement extends LitElement {
+        static properties = {
+          id: { type: String },
+          from: { type: Object },
+          to: { type: Object }
+        };
+        // Define scoped styles right with your component, in plain CSS
+        static styles = css`
+          .edge-wrapper {
+            position: absolute;
+            pointer-events: none;
+          }
+
+          .svg {
+            width: 100vw;
+            height: 100vh;
+          }
+        `;
+
+        constructor() {
+          super()
+          // Declare reactive properties
+          this.id = `edge-${crypto.randomUUID()}`
+          this.from = { x: 0, y: 0 }
+          this.to = { x: 100, y: 100 }
+        }
+
+        // Render the UI as a function of component state
+        render() {
+          return html`
+            <div class="edge-wrapper">
+              <svg class="svg">
+                <path
+                  stroke="#dcdcdc"
+                  strokeWidth="2"
+                  fill="none"
+                  d="M ${this.from.x}, ${this.from.y} L ${this.to.x}, ${this.to.y}"
+                />
+              </svg>
+            </div>
+          `;
+        }
+      }
+      customElements.define('edge-element', EdgeElement)
+
+      // Singleton class
+      class BoardElement extends LitElement {
+        static styles = css`
+          .board {
+            position: relative;
+            width: 100%;
+            height: 100%;
+          }
+        `
+
+        static properties = {
+          nodes : { type: Array, reflect: true },
+          edges : { type: Array, reflect: true },
+          _selectedNodeId: { state: true },
+          _newEdge: { state: true }
+        }
+
+        constructor() {
+          super();
+          this.nodes = snapshot(appState.nodes)
+          this.edges = snapshot(appState.edges)
+          this._selectedNodeId = null
+          this._newEdge = null
+          globalThis.___isEditingNewEdge = false
+          globalThis.___boardRect = this.getBoundingClientRect()
+        }
+
+        connectedCallback() {
+          super.connectedCallback()
+          window.addEventListener('keydown', this._handleKeydown);
+          this._handleValtio()
+        }
+
+        disconnectedCallback() {
+          super.disconnectedCallback()
+          window.removeEventListener('keydown', this._handleKeydown);
+        }
+
+        _handleValtio() {
+          subscribe(appState, () => {
+            const state = snapshot(appState) // A snapshot is an immutable object
+            this.nodes = state.nodes
+            this.edges = state.edges
+          })
+        }
+
+        _handleKeydown(e) {
+          // Create new node by 'ctrl + n'
+          if (e.ctrlKey && e.key === 'n') {
+            appState.nodes = [...snapshot(appState.nodes), {
+              id: `node-${crypto.randomUUID()}`,
+              position: { x: 0, y: 0 },
+            }]
+          }
+        }
+
+        _onConnectStart(e) {
+          this._newEdge = e.detail
+          globalThis.___isEditingNewEdge = true
+        }
+
+        _onConnectEnd(e) {
+          if (this._newEdge) {
+            // Properties order is important because the property takes the last value assigned and override previous properties.
+            // https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Operators/Spread_syntax#spread_in_object_literals
+            const edge = {
+              ...this._newEdge,
+              ...e.detail,
+            }
+            appState.edges = [...snapshot(appState.edges), edge]
+            this._newEdge = null
+            globalThis.___isEditingNewEdge = false
+          }
+        }
+
+        _onNodeSelect(e) {
+          const id = e.detail.selectedNodeId
+          if (typeof id === 'string') {
+            this._selectedNodeId = id
+            // reset newEdge
+            this._newEdge = null
+            globalThis.___isEditingNewEdge = false
+          }
+        }
+
+        _handleMouseDownBoard() {
+          this._newEdge = null
+          globalThis.___isEditingNewEdge = false
+        }
+
+        _handleMouseUpBoard() {
+          this._selectedNodeId = null
+        }
+
+        _handleMouseMoveBoard(e) {
+          if (this._selectedNodeId) {
+            const nodes = snapshot(appState.nodes)
+            const edges = snapshot(appState.edges)
+            const selectedNode = nodes.find((node) => node.id === this._selectedNodeId)
+            if (!selectedNode) return
+
+            // Update nodes position.
+            appState.nodes = nodes.map((node) => {
+              return selectedNode.id === node.id ? {
+                ...node,
+                position: {
+                  x: node.position.x + e.movementX,
+                  y: node.position.y + e.movementY,
+                }
+              } : node
+            })
+
+            // Update edges position.
+            appState.edges = edges.map((edge) => {
+              return selectedNode.id === edge.fromId ? {
+                ...edge,
+                from: {
+                  x: edge.from.x + e.movementX,
+                  y: edge.from.y + e.movementY,
+                }
+              } : selectedNode.id === edge.toId ? {
+                ...edge,
+                to: {
+                  x: edge.to.x + e.movementX,
+                  y: edge.to.y + e.movementY,
+                }
+              } : edge
+            })
+          }
+
+          if (this._newEdge) {
+            this._newEdge = {
+              ...this._newEdge,
+              to: {
+                x: e.clientX - globalThis.___boardRect.x,
+                y: e.clientY - globalThis.___boardRect.y,
+              }
+            }
+          }
+        }
+
+        render() {
+          return html`
+            <div
+              class="board"
+              @mousedown=${this._handleMouseDownBoard}
+              @mousemove=${this._handleMouseMoveBoard}
+              @mouseup=${this._handleMouseUpBoard}
+              @mouseleave=${this._handleMouseUpBoard}
+            >
+              ${this._newEdge
+                ? html`
+                  <edge-element
+                    from="${JSON.stringify(this._newEdge.from)}"
+                    to="${JSON.stringify(this._newEdge.to)}"
+                  ></edge-element>`
+                : nothing
+              }
+              ${this.edges.map((edge) => (
+                html`
+                  <edge-element
+                    key="${edge.id}""
+                    id="${edge.id}""
+                    from="${JSON.stringify(edge.from)}"
+                    to="${JSON.stringify(edge.to)}"
+                  />
+                `
+              ))}
+              ${this.nodes.map((node) => (
+                html`
+                  <node-element
+                    key="${node.id}""
+                    id="${node.id}""
+                    position="${JSON.stringify(node.position)}"
+                    @nodeselect=${this._onNodeSelect}
+                    @connectstart=${this._onConnectStart}
+                    @connectend=${this._onConnectEnd}
+                  />
+                `
+              ))}
+            </div>
+          `
+        }
+      }
+
+      customElements.define("board-element", BoardElement)
+
+      // render source code
+      const pageHtml = document.querySelector("html").outerHTML
+      const loc = pageHtml.split("\n").length
+      document.querySelector("#pre").textContent = pageHtml
+      document.querySelector("#loc").textContent = `show source (${loc} loc)`
+    </script>
+  </body>
+</html>
