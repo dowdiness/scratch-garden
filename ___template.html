@@ -5,10 +5,18 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>template</title>
     <style>
+      @font-face {
+        font-family: 'FontWithASyntaxHighlighter';
+        src:
+          url('./fonts/FontWithASyntaxHighlighter-Regular.woff2')
+          format('woff2')
+        ;
+      }
       :root {
         --sans-font: -apple-system, BlinkMacSystemFont, "Avenir Next", Avenir,
           "Nimbus Sans L", Roboto, "Noto Sans", "Segoe UI", Arial, Helvetica,
           "Helvetica Neue", sans-serif;
+        --code-font: "FontWithASyntaxHighlighter", monospace;
         --bg: #f5f7ff;
         --text: #212121;
       }
@@ -43,6 +51,23 @@
       body > * {
         grid-column: 2;
       }
+
+      code,
+      pre {
+        font-family: var(--code-font);
+      }
+
+      pre {
+        padding: 8px;
+        font-size: 12px;
+        border: 0;
+        overflow: auto;
+        outline: none;
+        background-color: #44444490;
+        color: white;
+        width: 100%;
+        box-sizing: border-box;
+      }
     </style>
   </head>
   <body>
@@ -51,10 +76,21 @@
       <p>
         write your content
       </p>
+      <br>
+      <details>
+        <summary id="loc">show page source</summary>
+        <pre id="pre"></pre>
+      </details>
+      <br>
       <a href="/" >back to home</a>
     </main>
     <script>
       // write your code here
+      // render source code
+      const pageHtml = document.querySelector("html").outerHTML
+      const loc = pageHtml.split("\n").length
+      document.querySelector("#pre").textContent = pageHtml
+      document.querySelector("#loc").textContent = `show source (${loc} loc)`
     </script>
   </body>
 </html>
