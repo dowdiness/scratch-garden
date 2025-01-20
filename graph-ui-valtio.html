@@ -143,7 +143,19 @@
         nodes: nodesState,
         edges: edgesState,
         isEditingNewEdge: false,
+        selectedEdgeId: '',
         boardRect: { x:0, y: 0 },
+        deleteEdgeById() {
+          this.edges = this.edges
+            .filter((edge) => {
+              if (edge.id === this.selectedEdgeId) {
+                this.selectedEdgeId = ''
+                return false
+              } else {
+                return true
+              }
+            })
+        }
       })
 
       subscribe(appState, () => {
@@ -166,7 +178,6 @@
         }
 
         _handleClick(e) {
-          console.log(this)
           appState.nodes = [
             ...snapshot(appState.nodes),
             {
@@ -346,18 +357,31 @@
         static properties = {
           id: { type: String },
           from: { type: Object },
-          to: { type: Object }
+          to: { type: Object },
+          isSelected: { type: Boolean },
         };
         // Define scoped styles right with your component, in plain CSS
         static styles = css`
           .edge-wrapper {
             position: absolute;
             pointer-events: none;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
           }
 
           .svg {
-            width: 100vw;
-            height: 100vh;
+            width: 100%;
+            height: 100%;
+            overflow: visible;
+            position: absolute;
+            pointer-events: none;
+          }
+
+          path {
+            cursor: pointer;
+            pointer-events: visibleStroke;
           }
         `;
 
@@ -369,16 +393,56 @@
           this.to = { x: 100, y: 100 }
         }
 
+        connectedCallback() {
+          super.connectedCallback()
+          // We need to update event listner when appState changes to prevent stale state.
+          // reference https://overreacted.io/making-setinterval-declarative-with-react-hooks/
+          window.addEventListener('keydown', this._handleKeydown)
+          this.unsubscribe = subscribe(appState, () => {
+            console.log('selectedEdgeId changed', appState.selectedEdgeId)
+            if (appState.selectedEdgeId === this.id) {
+              this.isSelected = true
+            } else {
+              this.isSelected = false
+            }
+            window.removeEventListener('keydown', this._handleKeydown)
+            window.addEventListener('keydown', this._handleKeydown)
+          })
+        }
+
+        disconnectedCallback() {
+          super.disconnectedCallback()
+          window.removeEventListener('keydown', this._handleKeydown)
+        }
+
+        // updated(changedProperties) {
+        //   window.removeEventListener('keydown', this._handleKeydown);
+        //   console.log(changedProperties)
+        //   window.addEventListener('keydown', this._handleKeydown);
+        // }
+        _handleClick() {
+          console.log(this.id)
+          appState.selectedEdgeId = this.id
+          console.log("Edge clicked!")
+        }
+
+        _handleKeydown(e) {
+          if (!!appState.selectedEdgeId && e.key === 'Backspace') {
+            appState.deleteEdgeById()
+          }
+        }
+
         // Render the UI as a function of component state
         render() {
           return html`
             <div class="edge-wrapper">
               <svg class="svg">
                 <path
-                  stroke="#dcdcdc"
-                  strokeWidth="2"
+                  stroke=${this.isSelected ? "#ffffff" : "#acacac"}
+                  stroke-width="2"
                   fill="none"
                   d="M ${this.from.x}, ${this.from.y} L ${this.to.x}, ${this.to.y}"
+                  @click=${this._handleClick}
                 />
               </svg>
             </div>
