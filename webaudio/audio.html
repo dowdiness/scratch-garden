@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>audio buffer</title>
+    <style>
+      :root {
+        --sans-font: -apple-system, BlinkMacSystemFont, "Avenir Next", Avenir,
+          "Nimbus Sans L", Roboto, "Noto Sans", "Segoe UI", Arial, Helvetica,
+          "Helvetica Neue", sans-serif;
+        --bg: #f5f7ff;
+        --text: #212121;
+      }
+
+      @media (prefers-color-scheme: dark) {
+        :root {
+          color-scheme: dark;
+          --bg: #212121;
+          --text: #dcdcdc;
+        }
+      }
+
+      *, *::before, *::after {
+        box-sizing: border-box;
+      }
+
+      html {
+        font-family: var(--sans-font);
+        scroll-behavior: smooth;
+      }
+
+      body {
+        color: var(--text);
+        background-color: var(--bg);
+        font-size: 1.15rem;
+        line-height: 1.5;
+        display: grid;
+        grid-template-columns: 1fr min(45rem, 90%) 1fr;
+        margin: 0;
+      }
+      body > * {
+        grid-column: 2;
+      }
+
+      main {
+        display: flex;
+        flex-direction: column;
+      }
+  </style>
+  </head>
+  <body>
+    <main>
+        <h1>Audio buffer</h1>
+        <textarea id="code" spellcheck="false" rows="8"></textarea>
+        <canvas id="plot" width="300" height="150"></canvas>
+        <br>
+        <div>
+          <button id="init" type="button">Init</button>
+          <button id="toggle" type="button">Toggle</button>
+        </div>
+        <br>
+        <a href="/" >back to home</a>
+    </main>
+    <script type="module">
+      // Audio
+      let context
+      let isAudioStarted = false
+      let buffer
+      let source
+      // Playing duration time
+      const duration = 4
+
+      function setDefaultAudioContext() {
+        context = new AudioContext()
+        return context
+      }
+
+      /**
+       * Get a warning if you trigger before a user gesture on the page.
+       */
+      function getAudioContext() {
+        if(!context) {
+          return setDefaultAudioContext()
+        }
+        return context
+      }
+
+      async function initAudioOnFirstClick(element) {
+        const el = element ? element : document
+
+        if (!isAudioStarted) {
+          return new Promise((resolve) => {
+            el.addEventListener('click', async function listner() {
+              el.removeEventListener('click', listner)
+              const context = getAudioContext()
+
+              const sampleRate = context.sampleRate
+              // https://developer.mozilla.org/ja/docs/Web/API/BaseAudioContext/createBuffer
+              buffer = context.createBuffer(1, sampleRate * duration, sampleRate)
+
+              await context.resume()
+
+              resolve()
+            })
+          }).then(() => {
+            isAudioStarted = true
+            console.log('Audio initialization completed')
+          }).catch((error) => {
+            console.error(`Audio initialization by click event error: ${error}`)
+          })
+        }
+      }
+
+      const input = document.querySelector("#code")
+      input.value = `Math.sin(t/44100*2*Math.PI*220)*t/44100/4`
+
+      function update(canvas) {
+        // create sample generator function from user code
+        const fn = new Function("t", `return (${input.value})`)
+        const samples = buffer.getChannelData(0)
+        updateBuffer(samples, fn, canvas)
+      }
+
+      function playBuffer(ctx, buffer, duration = 0) {
+        // https://developer.mozilla.org/ja/docs/Web/API/BaseAudioContext/createBufferSource
+        const source = ctx.createBufferSource()
+        source.buffer = buffer
+        // source.loop = true
+        const start = ctx.currentTime + 0.1
+        source.start(start)
+        source.connect(ctx.destination)
+        if (duration) {
+          source.stop(start + duration)
+        }
+        return source
+      }
+
+
+      // fill audio buffer with the given function
+      function updateBuffer(samples, fn, canvas) {
+        for (let i = 0; i < samples.length; i++) {
+          samples[i] = fn(i)
+        }
+        drawBuffer(samples, canvas)
+      }
+
+      function drawBuffer(samples, canvas) {
+        plot(
+          (x) => samples[Math.floor(x)],
+          canvas,
+          [0, samples.length - 1],
+          [-1, 1],
+          "white",
+          2
+        );
+      }
+
+      function isRunning() {
+        // Don't call getAudioContext() here if audio is not started because of the Autoplay Policy
+        return isAudioStarted ? getAudioContext().state === 'running' : false
+      }
+
+      function play() {
+        const context = getAudioContext()
+        context.resume()
+        source?.stop()
+        source = playBuffer(context, buffer, duration)
+        console.log(source, buffer)
+      }
+
+      function stop() {
+        return getAudioContext().suspend()
+      }
+
+      function toggleAudio() {
+        const context = getAudioContext()
+        if(isRunning()) {
+          getAudioContext().suspend()
+        } else {
+          console.log(source, buffer)
+          context.resume()
+          source?.stop()
+          source = playBuffer(context, buffer, duration)
+        }
+      }
+      // Canvas
+      function plot(
+        fn,
+        canvas,
+        xrange = [-1, 1],
+        yrange = [-1, 1],
+        lineWidth = 4
+      ) {
+        // these 3 functions are very good to know..
+        const lerp = (v, min, max) => v * (max - min) + min;
+        const invLerp = (v, min, max) => (v - min) / (max - min);
+        const remap = (v, vmin, vmax, omin, omax) =>
+          lerp(invLerp(v, vmin, vmax), omin, omax);
+        // prepare draw context
+        const ctx = canvas.getContext("2d");
+        ctx.lineWidth = lineWidth;
+        ctx.strokeStyle = 'cyan';
+        // function ranges
+        const [x0, x1] = xrange;
+        const [y0, y1] = yrange;
+        // draw ranges
+        const [px0, px1] = [0, canvas.width];
+        const [py0, py1] = [canvas.height - ctx.lineWidth, ctx.lineWidth];
+        // actual draw logic
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.beginPath();
+        for (let px = 0; px < canvas.width; px++) {
+          // console.log(px, px0, px1, x0, x1)
+          const x = remap(px, px0, px1, x0, x1);
+          const y = fn(x);
+          const py = remap(y, y0, y1, py0, py1);
+          // console.log(x, y, py)
+          px === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+        }
+        ctx.stroke();
+      }
+
+      function getCanvas(selector) {
+        const canvas = document.querySelector(selector)
+        canvas.style.width = canvas.width
+        canvas.style.height = canvas.height
+        canvas.width *= window.devicePixelRatio
+        canvas.height *= window.devicePixelRatio
+        const ctx = canvas.getContext("2d")
+        return [canvas, ctx]
+      }
+      const [canvas] = getCanvas('#plot')
+      const xrange = [-Math.PI * 2, Math.PI * 2]
+      const yrange = [-1, 1]
+
+      const init = document.querySelector('#init')
+      const toggle = document.querySelector('#toggle')
+
+      initAudioOnFirstClick(init)
+      toggle.addEventListener('click', (e) => {
+        console.log(e, getAudioContext().state)
+        play()
+        update(canvas)
+      })
+    </script>
+  </body>
+</html>
