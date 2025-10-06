@@ -1,0 +1,164 @@
+<!-- ちゃんと動かないかも -->
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>web component</title>
+    <style>
+      :root {
+        --sans-font: -apple-system, BlinkMacSystemFont, "Avenir Next", Avenir,
+          "Nimbus Sans L", Roboto, "Noto Sans", "Segoe UI", Arial, Helvetica,
+          "Helvetica Neue", sans-serif;
+        --bg: #f5f7ff;
+        --text: #212121;
+      }
+
+      @media (prefers-color-scheme: dark) {
+        :root {
+          color-scheme: dark;
+          --bg: #212121;
+          --text: #dcdcdc;
+        }
+      }
+
+      *, *::before, *::after {
+        box-sizing: border-box;
+      }
+
+      html {
+        font-family: var(--sans-font);
+        scroll-behavior: smooth;
+      }
+
+      body {
+        color: var(--text);
+        background-color: var(--bg);
+        font-size: 1.15rem;
+        line-height: 1.5;
+        display: grid;
+        grid-template-columns: 1fr min(45rem, 90%) 1fr;
+        margin: 0;
+      }
+
+      body > * {
+        grid-column: 2;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Web component</h1>
+      <node-element
+        id="node1"
+        class="node-element"
+        size="100"
+      >
+        <div
+          class="node-wrapper"
+        >
+          <div class="node-outside">
+            <div class="connector" />
+            <div class="node">node</div>
+            <div class="connector" />
+          </div>
+        </div>
+      </node-element>
+      <a href="/" >back to home</a>
+    </main>
+    <script type="module">
+      const sheet = new CSSStyleSheet();
+      sheet.replaceSync(`
+        .node {
+          /* for node outline */
+          border: solid 1px;
+          width: 100px;
+          height: 40px;
+          border-radius: 6px;
+          padding: 8px 16px;
+
+          /* for node content layout */
+          display: flex;
+          justify-content: center;
+          align-items: center;
+
+          cursor: pointer;
+        }
+
+        .node-outside {
+          display: flex;
+          align-items: center;
+        }
+
+        .connector {
+          width: 10px;
+          height: 10px;
+          border: solid 1px;
+          border-radius: 50%;
+          cursor: pointer;
+        }
+
+        .node-wrapper {
+          position: absolute;
+        }
+      `);
+
+      class NodeVanillaElement extends HTMLElement {
+        static observedAttributes = ["node-data"];
+        counter = 0
+
+        constructor() {
+          super();
+          this._internals = this.attachInternals();
+
+          const shadowRoot = this.attachShadow({ mode: 'open' })
+          shadowRoot.adoptedStyleSheets = [sheet];
+          Array.from(this.children).forEach((child) => shadowRoot.appendChild(child))
+        }
+
+        connectedCallback() {
+          console.log("カスタム要素がページに追加されました。");
+          this.addEventListener('click', this._onClick)
+        }
+
+        disconnectedCallback() {
+          console.log("カスタム要素がページから除去されました。");
+        }
+
+        attributeChangedCallback(name, oldValue, newValue) {
+          const data = fromProp(newValue)
+          if (newValue && name === 'node-data') {
+              this.style.transform = `translate(${data.position.x}px, ${data.position.y}px)`
+              this.nodeData = newValue;
+          }
+        }
+
+        _onClick(event) {
+          console.log(fromProp(this.nodeData))
+          this.counter = 100 + this.counter
+          this.setAttribute('node-data', toProp({
+            position: { x: 0, y: this.counter }
+          }))
+
+          if (this._internals.states.has('hidden')) {
+            this._internals.states.delete('hidden')
+          } else {
+            this._internals.states.add('hidden')
+          }
+        }
+      }
+
+      customElements.define("node-element", NodeVanillaElement);
+
+      function toProp(v) {
+        return JSON.stringify(v)
+      }
+
+      function fromProp(v) {
+        return JSON.parse(v)
+      }
+
+      node1.setAttribute('node-data', toProp({ position: { x: 0, y: 0 } }))
+    </script>
+  </body>
+</html>
