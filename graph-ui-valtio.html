@@ -106,6 +106,55 @@
         styleMap
       } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js'
       import { proxy, snapshot, subscribe } from './valtio.js'
+      class Node {
+        /** @member {string} */
+        type
+        /** @member {Array.<number|Node>} */
+        ins
+        compileSelf = (node, ref, args) => {
+          return `let ${ref} = lib.${node.type}(${args.join(",")})`;
+        }
+        /**
+         * Constructor for initializing a new instance of the Node.
+         *
+         * @param {string} type - The type of the instance to be created.
+         * @param {(number|Node)[]} ins - The instance data or configuration.
+         *
+         */
+        constructor(type, ins, compileSelf) {
+          if (!compileSelf) {
+            compileSelf = (node, ref, args) => {
+              return `let ${ref} = lib.${node.type}(${args.join(",")})`;
+            }
+          }
+          this.type = type;
+          this.ins = ins;
+          this.compileSelf = compileSelf;
+        }
+
+        toString() {
+          return `(${this.type}${this.ins?.map((arg) => ` ${arg}`)})`
+        }
+
+        compile() {
+          const nodes = Array.from(topoSort(this))
+          /**
+           * @param {number|Node} input
+           */
+          const getRef = (input) => {
+            return typeof input !== "object" ? input : `v${nodes.indexOf(input)}`;
+          }
+          const lines = []
+          for (let id in nodes) {
+            const node = nodes[id];
+            const args = node.ins.map(getRef);
+            const ref = getRef(node);
+            lines.push(node.compileSelf(node, ref, args));
+          }
+          const last = getRef(nodes[nodes.length - 1]);
+          return { lines, last };
+        }
+      }
 
       // Node type
       // id string node id
@@ -120,20 +169,21 @@
       // fromId string node id of source
       // to { x: number, y: number } target handle postion
       // toId string node id of target
+      // handlePosition
       const nodesState = proxy(
         [
           {
             id: `node-${crypto.randomUUID()}`,
             type: 'add',
             args: [],
-            ins: [],
+            ins: [null, null],
             position: { x: 20, y: 200 },
           },
           {
             id: `node-${crypto.randomUUID()}`,
             type: 'sub',
             args: [],
-            ins: [],
+            ins: [null, null],
             position: { x: 200, y: 100 },
           },
         ]
@@ -155,11 +205,35 @@
                 return true
               }
             })
+        },
+        setUpIns() {
+          const nodes = this.nodes.map((node) => {
+            const ins = this.edges
+              .filter((edge) => {
+                node.id === edge.toId
+              })
+              .map((edge) => ({ id: edge.fromId, position: edge.handlePosition }))
+          })
+
+          let lnodes = {};
+          let out;
+          nodes.forEach((node) => {
+            if (node.type === "out") {
+              lnodes[node.id] = new Node("out");
+              out = lnodes[node.id];
+            } else {
+              lnodes[node.id] = new Node(node.type);
+              node.args.forEach((v) => {
+                lnodes[node.id].ins.push(n(Number(v)));
+              });
+            }
+          });
         }
       })
 
       subscribe(appState, () => {
         const state = snapshot(appState)
+        state.setUpIns()
         // console.log(state)
       })
 
@@ -173,7 +247,7 @@
         constructor() {
           super()
           this.type = 'n'
-          this.args = []
+          this.args = [440]
           this.ins = []
         }
 
@@ -218,6 +292,12 @@
             display: flex;
             flex-direction: column;
             align-items: center;
+          }
+
+          .connectors-wrapper {
+            display: flex;
+            justify-content: space-evenly;
+            width: 100%;
           }
 
           .connector {
@@ -265,7 +345,7 @@
           }
         }
 
-        _handleConnect(e) {
+        _handleConnect(e, i) {
           e.stopPropagation()
           // caluculate edge element position
           // Connector's DOMRect
@@ -308,6 +388,7 @@
             const detail = {
               toId: this.id,
               to: position,
+              handlePosition: i,
             }
             const connectStartEvent = new CustomEvent('connectend', {
               detail,
@@ -329,16 +410,23 @@
               style=${styleMap(transform)}
             >
               <div class="node-outside">
-                <div
-                  class="connector"
-                  data-placement="Top"
-                  @mousedown=${this._handleConnect}
-                ></div>
+                <div class="connectors-wrapper">
+                  ${this.ins.map((inlet, i) => {
+                    return html`
+                      <div
+                        class="connector"
+                        data-placement="Top"
+                        @mousedown=${(e) => this._handleConnect(e, i)}
+                      ></div>
+                    `
+                  })}
+                </div>
                 <div
                   class="node"
                   @mousedown=${this._handleMouseDown}
                 >
-                  ${this.type}
+                  <span>${this.type}</span>
+                  <input type="number">${this.args}</input>
                 </div>
                 <div
                   class="connector"
@@ -562,6 +650,7 @@
               ...this._newEdge,
               ...e.detail,
             }
+            console.log( [...snapshot(appState.edges), edge], snapshot(appState.nodes))
             appState.edges = [...snapshot(appState.edges), edge]
             this._newEdge = null
             appState.isEditingNewEdge = false
@@ -648,47 +737,47 @@
                 `})
               }
             </div>
-              <div
-                class="board"
-                @mousedown=${this._handleMouseDownBoard}
-                @mousemove=${this._handleMouseMoveBoard}
-                @mouseup=${this._handleMouseUpBoard}
-                @mouseleave=${this._handleMouseUpBoard}
-              >
-                ${this._newEdge
-                  ? html`
-                    <edge-element
-                      from="${JSON.stringify(this._newEdge.from)}"
-                      to="${JSON.stringify(this._newEdge.to)}"
-                    ></edge-element>`
-                  : nothing
-                }
-                ${this.edges.map((edge) => (
-                  html`
-                    <edge-element
-                      key="${edge.id}""
-                      id="${edge.id}""
-                      from="${JSON.stringify(edge.from)}"
-                      to="${JSON.stringify(edge.to)}"
-                    />
-                  `
-                ))}
-                ${this.nodes.map((node) => (
-                  html`
-                    <node-element
-                      key="${node.id}"
-                      id="${node.id}"
-                      type="${node.type}"
-                      args=${node.args}
-                      ins=${node.ins}
-                      position="${JSON.stringify(node.position)}"
-                      @nodeselect=${this._onNodeSelect}
-                      @connectstart=${this._onConnectStart}
-                      @connectend=${this._onConnectEnd}
-                    />
-                  `
-                ))}
-              </div>
+            <div
+              class="board"
+              @mousedown=${this._handleMouseDownBoard}
+              @mousemove=${this._handleMouseMoveBoard}
+              @mouseup=${this._handleMouseUpBoard}
+              @mouseleave=${this._handleMouseUpBoard}
+            >
+              ${this._newEdge
+                ? html`
+                  <edge-element
+                    from="${JSON.stringify(this._newEdge.from)}"
+                    to="${JSON.stringify(this._newEdge.to)}"
+                  ></edge-element>`
+                : nothing
+              }
+              ${this.edges.map((edge) => (
+                html`
+                  <edge-element
+                    key="${edge.id}""
+                    id="${edge.id}""
+                    from="${JSON.stringify(edge.from)}"
+                    to="${JSON.stringify(edge.to)}"
+                  />
+                `
+              ))}
+              ${this.nodes.map((node) => {
+                return html`
+                  <node-element
+                    key="${node.id}"
+                    id="${node.id}"
+                    type="${node.type}"
+                    args=${JSON.stringify(node.args)}
+                    ins=${JSON.stringify(node.ins)}
+                    position="${JSON.stringify(node.position)}"
+                    @nodeselect=${this._onNodeSelect}
+                    @connectstart=${this._onConnectStart}
+                    @connectend=${this._onConnectEnd}
+                  />
+                `
+            })}
+            </div>
           `
         }
       }

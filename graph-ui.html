@@ -104,7 +104,22 @@
         html,
         nothing,
         styleMap
-      } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
+      } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js'
+      import { proxy, snapshot, subscribe } from './valtio.js'
+
+      const appState = proxy({
+        nodes: [
+          {
+            id: `node-${crypto.randomUUID()}`,
+            position: { x: 20, y: 200 },
+          },
+          {
+            id: `node-${crypto.randomUUID()}`,
+            position: { x: 200, y: 100 },
+          },
+        ],
+        edges: []
+      })
 
       // HACK globalThis has some additional properties
       // ___boardRect DOMRect of BoardElement
@@ -154,7 +169,7 @@
 
         constructor() {
           super()
-          this.id = crypto.randomUUID()
+          this.id = `node-${crypto.randomUUID()}`
           this.position = { x: 0, y: 0 }
         }
 
@@ -198,7 +213,7 @@
           if (!globalThis.___isEditingNewEdge) {
             // Connect Start event
             const detail = {
-              id: crypto.randomUUID(),
+              id: `edge-${crypto.randomUUID()}`,
               fromId: this.id,
               from: position,
               to: position,
@@ -282,7 +297,7 @@
         constructor() {
           super()
           // Declare reactive properties
-          this.id = crypto.randomUUID()
+          this.id = `edge-${crypto.randomUUID()}`
           this.from = { x: 0, y: 0 }
           this.to = { x: 100, y: 100 }
         }
@@ -324,21 +339,43 @@
 
         constructor() {
           super();
-          this.nodes = [
-            {
-              id: "node1",
-              position: { x: 20, y: 200 },
-            },
-            {
-              id: "node2",
-              position: { x: 200, y: 100 },
-            },
-          ]
-          this.edges = []
+          this.nodes = snapshot(appState.nodes)
+          console.log(this.nodes)
+          this.edges = snapshot(appState.edges)
           this._selectedNodeId = null
           this._newEdge = null
           globalThis.___isEditingNewEdge = false
           globalThis.___boardRect = this.getBoundingClientRect()
+        }
+
+        connectedCallback() {
+          super.connectedCallback()
+          window.addEventListener('keydown', this._handleKeydown);
+          this._handleValtio()
+        }
+
+        disconnectedCallback() {
+          super.disconnectedCallback()
+          window.removeEventListener('keydown', this._handleKeydown);
+        }
+
+        _handleValtio() {
+          subscribe(appState, () => {
+            const state = snapshot(appState) // A snapshot is an immutable object
+            console.log('appState is mutated', state)
+            this.nodes = state.nodes
+            this.edges = state.edges
+          })
+        }
+
+        _handleKeydown(e) {
+          // Create new node by 'ctrl + n'
+          if (e.ctrlKey && e.key === 'n') {
+            appState.nodes = [...snapshot(appState.nodes), {
+              id: `node-${crypto.randomUUID()}`,
+              position: { x: 0, y: 0 },
+            }]
+          }
         }
 
         _onConnectStart(e) {
@@ -354,7 +391,7 @@
               ...this._newEdge,
               ...e.detail,
             }
-            this.edges = [...this.edges, edge]
+            appState.edges = [...snapshot(appState.edges), edge]
             this._newEdge = null
             globalThis.___isEditingNewEdge = false
           }
@@ -381,11 +418,13 @@
 
         _handleMouseMoveBoard(e) {
           if (this._selectedNodeId) {
-            const selectedNode = this.nodes.find((node) => node.id === this._selectedNodeId)
+            const nodes = snapshot(appState.nodes)
+            const edges = snapshot(appState.edges)
+            const selectedNode = nodes.find((node) => node.id === this._selectedNodeId)
             if (!selectedNode) return
 
             // Update nodes position.
-            this.nodes = this.nodes.map((node) => {
+            appState.nodes = nodes.map((node) => {
               return selectedNode.id === node.id ? {
                 ...node,
                 position: {
@@ -396,7 +435,7 @@
             })
 
             // Update edges position.
-            this.edges = this.edges.map((edge) => {
+            appState.edges = edges.map((edge) => {
               return selectedNode.id === edge.fromId ? {
                 ...edge,
                 from: {
