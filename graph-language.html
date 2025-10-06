@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>scratch garden</title>
+    <title>graph language</title>
     <style>
       :root {
         --sans-font: -apple-system, BlinkMacSystemFont, "Avenir Next", Avenir,
@@ -78,6 +78,10 @@
         margin-top: 1rem;
         width: 4rem;
       }
+
+      code {
+        margin-top: 1rem;
+      }
   </style>
   </head>
   <body>
@@ -86,26 +90,36 @@
       <textarea id="program" name="program">add(3, 2).mul(2).sub(3).div(2)</textarea>
       <button id="exec" type="button">Compile</button>
       <code id="process"></code>
-      <p id="output"></p>
+      <p>
+        <span>Result: </span><span id="output"></span>
+      </p>
       <a href="/" >back to home</a>
     </main>
     <script>
-      console.log(program.value)
       class Node {
         /** @member {string} */
         type
         /** @member {Array.<number|Node>} */
         ins
+        compileSelf = (node, ref, args) => {
+          return `let ${ref} = lib.${node.type}(${args.join(",")})`;
+        }
         /**
          * Constructor for initializing a new instance of the Node.
          *
          * @param {string} type - The type of the instance to be created.
-         * @param {...number|Node} ins - The instance data or configuration.
+         * @param {(number|Node)[]} ins - The instance data or configuration.
          *
          */
-        constructor(type, ins) {
+        constructor(type, ins, compileSelf) {
+          if (!compileSelf) {
+            compileSelf = (node, ref, args) => {
+              return `let ${ref} = lib.${node.type}(${args.join(",")})`;
+            }
+          }
           this.type = type;
           this.ins = ins;
+          this.compileSelf = compileSelf;
         }
 
         toString() {
@@ -130,13 +144,9 @@
           const last = getRef(nodes[nodes.length - 1]);
           return { lines, last };
         }
-
-        compileSelf(node, ref, args) {
-          return `let ${ref} = lib.${node.type}(${args.join(",")})`;
-        }
       }
 
-      let registerNode = (type) => {
+      const registerNode = (type) => {
         Node.prototype[type] = function (...args) {
           return new Node(type, [this, ...args]);
         };
@@ -156,8 +166,6 @@
           .map((name) => [name, registerNode(`${name}`)])
       )
 
-      let exp = `return add(3, 2).mul(2).sub(3).div(2)`;
-
       /**
        * @generator
        * @param {Node} node
@@ -175,6 +183,12 @@
         yield node;
       }
 
+      const run = (code, lib) => {
+        const keys = Object.keys(lib)
+        const values = Object.values(lib)
+        return new Function(...keys, code)(...values)
+      }
+
       let timeout;
       let generator, visited, lines
 
@@ -190,9 +204,10 @@
             ? input
             : `v${visited.indexOf(input)}`;
         },
+        createNode: () => run(`return ${program.value}`, registers),
         update: (text, result) => {
           clearTimeout(timeout);
-          const node = interpreter.run(`return ${program.value}`, registers);
+          const node = interpreter.createNode();
           interpreter.start(node)
           const unit = node.compile();
           unit.lines.push(`return ${unit.last}`);
@@ -220,15 +235,10 @@
             lines.push("// result: " + res);
             timeout = setTimeout(() => interpreter.start(), 2000);
           }
-        },
-        run: (code, lib) => {
-          const keys = Object.keys(lib)
-          const values = Object.values(lib)
-          return new Function(...keys, code)(...values)
         }
       }
       interpreter.update(process, output)
-      updateCode = () => interpreter.update(process, output)
+      const updateCode = () => interpreter.update(process, output)
       exec.addEventListener('click', updateCode)
     </script>
   </body>
